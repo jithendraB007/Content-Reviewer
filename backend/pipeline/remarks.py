@@ -12,7 +12,7 @@ RUBRIC_DISPLAY_NAMES = {
     11: "EN_CONSISTENCY",
 }
 
-SEVERITY_PRIORITY = {"Critical": 4, "Major": 3, "Minor": 2, "Pass": 1, "N/A": 0, "": 0}
+SEVERITY_PRIORITY = {"Critical": 4, "Major": 3, "Minor": 2, "Pass": 1, "N/A": 0, "Error": 0, "": 0}
 
 
 def generate_remarks(rubric_results: dict, original_row: dict = None) -> str:
@@ -29,7 +29,7 @@ def generate_remarks(rubric_results: dict, original_row: dict = None) -> str:
         result = rubric_results[rubric_num]
         score = result.get("score", "Pass")
 
-        if score in ("Pass", "N/A", ""):
+        if score in ("Pass", "N/A", "", "Error"):
             continue
 
         name = RUBRIC_DISPLAY_NAMES.get(rubric_num, f"R{rubric_num}")

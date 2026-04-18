@@ -32,6 +32,8 @@ def compute_overall_status(rubric_results: dict) -> str:
         return "Rejected"
     if "Major" in scores:
         return "Needs Review"
+    if "Error" in scores:
+        return "Needs Review"
     return "Approved"
 
 
@@ -75,101 +77,76 @@ def _review_single_question(reviewer: RubricReviewer, row) -> dict:
     applicable = get_rubrics_for_question(q_type, options)
     rubric_results = {}
 
+    def _run(rubric_num, predictor, **kwargs):
+        try:
+            res = reviewer.call_with_retry(predictor, **kwargs)
+            rubric_results[rubric_num] = _extract(res)
+        except Exception as e:
+            print(f"  [R{rubric_num} ERROR] {str(e)[:120]}")
+            rubric_results[rubric_num] = {"score": "Error", "issues": f"Review failed: {str(e)[:100]}"}
+
     if 1 in applicable:
-        res = reviewer.call_with_retry(
-            reviewer.r1,
-            question=question, task_instructions=instructions,
-            options=options, explanation=explanation,
-            transcript=transcript, question_type=q_type,
-        )
-        rubric_results[1] = _extract(res)
+        _run(1, reviewer.r1,
+             question=question, task_instructions=instructions,
+             options=options, explanation=explanation,
+             transcript=transcript, question_type=q_type)
 
     if 2 in applicable:
-        res = reviewer.call_with_retry(
-            reviewer.r2,
-            question=question, task_instructions=instructions,
-            options=options, explanation=explanation,
-            transcript=transcript,
-        )
-        rubric_results[2] = _extract(res)
+        _run(2, reviewer.r2,
+             question=question, task_instructions=instructions,
+             options=options, explanation=explanation,
+             transcript=transcript)
 
     if 3 in applicable:
-        res = reviewer.call_with_retry(
-            reviewer.r3,
-            question=question, options=options,
-            correct_answer=correct_answer, task_instructions=instructions,
-            question_type=q_type, question_purpose=question_purpose,
-        )
-        rubric_results[3] = _extract(res)
+        _run(3, reviewer.r3,
+             question=question, options=options,
+             correct_answer=correct_answer, task_instructions=instructions,
+             question_type=q_type, question_purpose=question_purpose)
 
     if 4 in applicable:
-        res = reviewer.call_with_retry(
-            reviewer.r4,
-            question=question, question_purpose=question_purpose,
-            correct_answer=correct_answer, explanation=explanation,
-            difficulty=difficulty, question_type=q_type,
-        )
-        rubric_results[4] = _extract(res)
+        _run(4, reviewer.r4,
+             question=question, question_purpose=question_purpose,
+             correct_answer=correct_answer, explanation=explanation,
+             difficulty=difficulty, question_type=q_type)
 
     if 5 in applicable:
-        res = reviewer.call_with_retry(
-            reviewer.r5,
-            task_instructions=instructions, question_type=q_type,
-            difficulty=difficulty, question=question,
-        )
-        rubric_results[5] = _extract(res)
+        _run(5, reviewer.r5,
+             task_instructions=instructions, question_type=q_type,
+             difficulty=difficulty, question=question)
 
     if 6 in applicable:
-        res = reviewer.call_with_retry(
-            reviewer.r6,
-            question=question, task_instructions=instructions,
-            options=options, explanation=explanation,
-            difficulty=difficulty,
-        )
-        rubric_results[6] = _extract(res)
+        _run(6, reviewer.r6,
+             question=question, task_instructions=instructions,
+             options=options, explanation=explanation,
+             difficulty=difficulty)
 
     if 7 in applicable:
-        res = reviewer.call_with_retry(
-            reviewer.r7,
-            options=options, correct_answer=correct_answer,
-            explanation=explanation, question=question,
-            question_type=q_type,
-        )
-        rubric_results[7] = _extract(res)
+        _run(7, reviewer.r7,
+             options=options, correct_answer=correct_answer,
+             explanation=explanation, question=question,
+             question_type=q_type)
 
     if 8 in applicable:
-        res = reviewer.call_with_retry(
-            reviewer.r8,
-            question=question, task_instructions=instructions,
-            explanation=explanation, difficulty=difficulty,
-        )
-        rubric_results[8] = _extract(res)
+        _run(8, reviewer.r8,
+             question=question, task_instructions=instructions,
+             explanation=explanation, difficulty=difficulty)
 
     if 9 in applicable:
-        res = reviewer.call_with_retry(
-            reviewer.r9,
-            question=question, options=options,
-            task_instructions=instructions, question_schema=schema,
-        )
-        rubric_results[9] = _extract(res)
+        _run(9, reviewer.r9,
+             question=question, options=options,
+             task_instructions=instructions, question_schema=schema)
 
     if 10 in applicable:
-        res = reviewer.call_with_retry(
-            reviewer.r10,
-            question=question, task_instructions=instructions,
-            options=options, explanation=explanation,
-            transcript=transcript,
-        )
-        rubric_results[10] = _extract(res)
+        _run(10, reviewer.r10,
+             question=question, task_instructions=instructions,
+             options=options, explanation=explanation,
+             transcript=transcript)
 
     if 11 in applicable:
-        res = reviewer.call_with_retry(
-            reviewer.r11,
-            question=question, task_instructions=instructions,
-            options=options, explanation=explanation,
-            transcript=transcript,
-        )
-        rubric_results[11] = _extract(res)
+        _run(11, reviewer.r11,
+             question=question, task_instructions=instructions,
+             options=options, explanation=explanation,
+             transcript=transcript)
 
     row_dict = dict(row)
     corrections = apply_corrections(rubric_results, row_dict)
@@ -177,6 +154,14 @@ def _review_single_question(reviewer: RubricReviewer, row) -> dict:
     overall_status = compute_overall_status(rubric_results)
 
     result = {
+        "Q. NO": row.get("Q. NO", ""),
+        "Question Type": q_type,
+        "Question": question,
+        "Instructions": instructions,
+        "Options": options,
+        "Correct Answer": correct_answer,
+        "Explanation": explanation,
+        "Transcript": transcript,
         **corrections,
         "Overall_Status": overall_status,
         "Remarks": remarks,
@@ -203,6 +188,14 @@ def _extract(prediction) -> dict:
 
 def _make_failed_result(row, error_msg: str) -> dict:
     result = {
+        "Q. NO": str(row.get("Q. NO", "")),
+        "Question Type": str(row.get("Question Type", "")),
+        "Question": str(row.get("Question", "")),
+        "Instructions": str(row.get("Instructions", "")),
+        "Options": str(row.get("Options", "")),
+        "Correct Answer": str(row.get("Correct Answer", "")),
+        "Explanation": str(row.get("Explanation", "")),
+        "Transcript": str(row.get("Transcript", "")),
         "Corrected_Instructions": str(row.get("Instructions", "")),
         "Corrected_Question": str(row.get("Question", "")),
         "Corrected_Options": str(row.get("Options", "")),

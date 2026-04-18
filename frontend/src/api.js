@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const BASE_URL = import.meta.env.VITE_API_URL || ''
 const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true'
 
 const api = axios.create({ baseURL: BASE_URL, timeout: 60000 })
@@ -138,9 +138,7 @@ export async function uploadFile(file) {
   }
   const form = new FormData()
   form.append('file', file)
-  const res = await api.post('/api/upload', form, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  })
+  const res = await api.post('/api/upload', form)
   return res.data
 }
 

@@ -29,7 +29,7 @@ def configure_dspy():
     if _dspy_configured:
         return
     lm = dspy.LM(
-        model="openai/meta/llama-3.1-70b-instruct",
+        model="openai/qwen/qwen3-30b-a3b",
         api_base="https://integrate.api.nvidia.com/v1",
         api_key=os.environ["NVIDIA_API_KEY"],
         max_tokens=4096,
