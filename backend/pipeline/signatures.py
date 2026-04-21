@@ -229,3 +229,194 @@ class ENConsistency(dspy.Signature):
     corrected_options: str = dspy.OutputField(desc="EN-consistent options")
     corrected_explanation: str = dspy.OutputField(desc="EN-consistent explanation")
     corrected_transcript: str = dspy.OutputField(desc="EN-consistent transcript")
+
+
+# ── Batch signatures (group related rubrics into one LLM call) ────────────────
+
+class TextMechanicsBatch(dspy.Signature):
+    """Evaluate four text-mechanics rubrics independently. For each, score Pass/Minor/Major/Critical.
+    R1=Grammar (subject-verb, tense, articles — NOT spelling/punctuation).
+    R2=Spelling (typos, misspellings, confused words — NOT British/American variants).
+    R10=Punctuation (missing ? or ., comma misuse — NOT grammar or spelling).
+    R11=English variant consistency (flag mixed British/American — NOT typos)."""
+
+    question: str = dspy.InputField(desc="The question text")
+    task_instructions: str = dspy.InputField(desc="Task instructions given to the student")
+    options: str = dspy.InputField(desc="Answer options (may be empty)")
+    explanation: str = dspy.InputField(desc="Answer explanation text")
+    transcript: str = dspy.InputField(desc="Audio/video transcript (may be empty)")
+    question_type: str = dspy.InputField(desc="Question type e.g. MCQ, Fill in the Blanks")
+
+    r1_score: str = dspy.OutputField(desc="R1 Grammar score: Pass/Minor/Major/Critical")
+    r1_issues: str = dspy.OutputField(desc="R1 grammar issues found, or 'None'")
+    r1_corrected_question: str = dspy.OutputField(desc="Grammar-corrected question, or empty if no change")
+    r1_corrected_instructions: str = dspy.OutputField(desc="Grammar-corrected instructions, or empty if no change")
+    r1_corrected_options: str = dspy.OutputField(desc="Grammar-corrected options, or empty if no change")
+    r1_corrected_explanation: str = dspy.OutputField(desc="Grammar-corrected explanation, or empty if no change")
+
+    r2_score: str = dspy.OutputField(desc="R2 Spelling score: Pass/Minor/Major/Critical")
+    r2_issues: str = dspy.OutputField(desc="R2 spelling issues found, or 'None'")
+    r2_corrected_question: str = dspy.OutputField(desc="Spelling-corrected question, or empty if no change")
+    r2_corrected_options: str = dspy.OutputField(desc="Spelling-corrected options, or empty if no change")
+    r2_corrected_explanation: str = dspy.OutputField(desc="Spelling-corrected explanation, or empty if no change")
+
+    r10_score: str = dspy.OutputField(desc="R10 Punctuation score: Pass/Minor/Major/Critical")
+    r10_issues: str = dspy.OutputField(desc="R10 punctuation issues, or 'None'")
+    r10_corrected_question: str = dspy.OutputField(desc="Punctuation-corrected question, or empty if no change")
+    r10_corrected_explanation: str = dspy.OutputField(desc="Punctuation-corrected explanation, or empty if no change")
+
+    r11_score: str = dspy.OutputField(desc="R11 English consistency score: Pass/Minor/Major/Critical")
+    r11_issues: str = dspy.OutputField(desc="R11 British/American mixed-variant issues, or 'None'")
+    r11_corrected_question: str = dspy.OutputField(desc="EN-consistent question, or empty if no change")
+    r11_corrected_options: str = dspy.OutputField(desc="EN-consistent options, or empty if no change")
+    r11_corrected_explanation: str = dspy.OutputField(desc="EN-consistent explanation, or empty if no change")
+
+
+class ContentQualityBatch(dspy.Signature):
+    """Evaluate four content-quality rubrics independently. For each, score Pass/Minor/Major/Critical.
+    R4=Functionality alignment (does question test the stated purpose at the right difficulty?).
+    R5=Instruction clarity (are instructions complete and appropriate for the question type?).
+    R6=Academic language (formal tone, no slang, culturally neutral).
+    R8=Readability (sentence length, wordiness — NOT grammar)."""
+
+    question: str = dspy.InputField(desc="The question text")
+    task_instructions: str = dspy.InputField(desc="Task instructions given to the student")
+    options: str = dspy.InputField(desc="Answer options (may be empty)")
+    explanation: str = dspy.InputField(desc="Answer explanation text")
+    correct_answer: str = dspy.InputField(desc="The correct answer")
+    difficulty: str = dspy.InputField(desc="Stated difficulty: Easy/Medium/Hard")
+    question_type: str = dspy.InputField(desc="Question type e.g. MCQ, Fill in the Blanks")
+    question_purpose: str = dspy.InputField(desc="Learning objective / skill being tested")
+
+    r4_score: str = dspy.OutputField(desc="R4 Functionality score: Pass/Minor/Major/Critical")
+    r4_issues: str = dspy.OutputField(desc="R4 alignment issues, or 'None'")
+
+    r5_score: str = dspy.OutputField(desc="R5 Instruction clarity score: Pass/Minor/Major/Critical")
+    r5_issues: str = dspy.OutputField(desc="R5 clarity issues, or 'None'")
+    r5_corrected_instructions: str = dspy.OutputField(desc="Clearer instructions, or empty if no change")
+
+    r6_score: str = dspy.OutputField(desc="R6 Academic language score: Pass/Minor/Major/Critical")
+    r6_issues: str = dspy.OutputField(desc="R6 informal/biased language issues, or 'None'")
+    r6_corrected_question: str = dspy.OutputField(desc="Academically corrected question, or empty if no change")
+    r6_corrected_explanation: str = dspy.OutputField(desc="Academically corrected explanation, or empty if no change")
+
+    r8_score: str = dspy.OutputField(desc="R8 Readability score: Pass/Minor/Major/Critical")
+    r8_issues: str = dspy.OutputField(desc="R8 readability issues, or 'None'")
+    r8_corrected_question: str = dspy.OutputField(desc="More readable question, or empty if no change")
+
+
+class StructureBatch(dspy.Signature):
+    """Evaluate two structure rubrics independently. For each, score Pass/Minor/Major/Critical.
+    R7=Option/explanation consistency (correct answer matches explanation; distractors addressed).
+    R9=Formatting/spacing (option labels A/B/C/D, spacing, capitalization, schema compliance)."""
+
+    question: str = dspy.InputField(desc="The question text")
+    options: str = dspy.InputField(desc="Answer options string")
+    correct_answer: str = dspy.InputField(desc="The correct answer")
+    explanation: str = dspy.InputField(desc="Answer explanation text")
+    task_instructions: str = dspy.InputField(desc="Task instructions")
+    question_schema: str = dspy.InputField(desc="Schema/format metadata (may be empty)")
+    question_type: str = dspy.InputField(desc="Question type")
+
+    r7_score: str = dspy.OutputField(desc="R7 Consistency score: Pass/Minor/Major/Critical")
+    r7_issues: str = dspy.OutputField(desc="R7 consistency issues, or 'None'")
+    r7_corrected_explanation: str = dspy.OutputField(desc="Corrected explanation, or empty if no change")
+    r7_corrected_options: str = dspy.OutputField(desc="Corrected options, or empty if no change")
+
+    r9_score: str = dspy.OutputField(desc="R9 Formatting score: Pass/Minor/Major/Critical")
+    r9_issues: str = dspy.OutputField(desc="R9 formatting issues, or 'None'")
+    r9_corrected_options: str = dspy.OutputField(desc="Reformatted options, or empty if no change")
+    r9_corrected_question: str = dspy.OutputField(desc="Reformatted question, or empty if no change")
+
+
+# ── Multi-question batch signatures (5 questions per API call, JSON I/O) ──────
+
+_MQ_INPUT_DESC = (
+    'JSON array of up to 5 objects: [{"q_no":"Q001","question":"...","task_instructions":"...",'
+    '"options":"...","explanation":"...","transcript":"...","question_type":"MCQ",'
+    '"correct_answer":"...","difficulty":"Easy","question_purpose":"...","question_schema":"..."}, ...]'
+)
+
+
+class MQTextMechanics(dspy.Signature):
+    """Review up to 5 exam questions for text mechanics. Evaluate each independently.
+    R1=Grammar (subject-verb, tense, articles — NOT spelling/punctuation).
+    R2=Spelling (typos, misspellings — NOT British/American variants).
+    R10=Punctuation (missing ?/., comma misuse — NOT grammar).
+    R11=English consistency (flag mixed British/American spelling).
+    Score each rubric: Pass / Minor / Major / Critical.
+    Return a JSON array in the same order as the input."""
+
+    questions_json: str = dspy.InputField(desc=_MQ_INPUT_DESC)
+    results_json: str = dspy.OutputField(
+        desc=(
+            'JSON array, one object per question, same order as input: '
+            '[{"q_no":"Q001",'
+            '"r1_score":"Pass","r1_issues":"None","r1_corrected_question":"","r1_corrected_options":"","r1_corrected_explanation":"",'
+            '"r2_score":"Pass","r2_issues":"None","r2_corrected_question":"","r2_corrected_options":"","r2_corrected_explanation":"",'
+            '"r10_score":"Pass","r10_issues":"None","r10_corrected_question":"","r10_corrected_explanation":"",'
+            '"r11_score":"Pass","r11_issues":"None","r11_corrected_question":"","r11_corrected_options":"","r11_corrected_explanation":""'
+            '}, ...]'
+        )
+    )
+
+
+class MQContentQuality(dspy.Signature):
+    """Review up to 5 exam questions for content quality. Evaluate each independently.
+    R4=Functionality alignment (tests stated purpose at right difficulty?).
+    R5=Instruction clarity (instructions complete and appropriate for question type?).
+    R6=Academic language (formal tone, no slang, culturally neutral).
+    R8=Readability (sentence length, wordiness — NOT grammar).
+    Score each rubric: Pass / Minor / Major / Critical.
+    Return a JSON array in the same order as the input."""
+
+    questions_json: str = dspy.InputField(desc=_MQ_INPUT_DESC)
+    results_json: str = dspy.OutputField(
+        desc=(
+            'JSON array, one object per question, same order as input: '
+            '[{"q_no":"Q001",'
+            '"r4_score":"Pass","r4_issues":"None",'
+            '"r5_score":"Pass","r5_issues":"None","r5_corrected_instructions":"",'
+            '"r6_score":"Pass","r6_issues":"None","r6_corrected_question":"","r6_corrected_explanation":"",'
+            '"r8_score":"Pass","r8_issues":"None","r8_corrected_question":""'
+            '}, ...]'
+        )
+    )
+
+
+class MQStructure(dspy.Signature):
+    """Review up to 5 exam questions for structure. Evaluate each independently.
+    R7=Option/explanation consistency (correct answer matches explanation; distractors addressed).
+    R9=Formatting/spacing (option labels A/B/C/D, spacing, capitalization, schema compliance).
+    Score each rubric: Pass / Minor / Major / Critical.
+    Return a JSON array in the same order as the input."""
+
+    questions_json: str = dspy.InputField(desc=_MQ_INPUT_DESC)
+    results_json: str = dspy.OutputField(
+        desc=(
+            'JSON array, one object per question, same order as input: '
+            '[{"q_no":"Q001",'
+            '"r7_score":"Pass","r7_issues":"None","r7_corrected_explanation":"","r7_corrected_options":"",'
+            '"r9_score":"Pass","r9_issues":"None","r9_corrected_options":"","r9_corrected_question":""'
+            '}, ...]'
+        )
+    )
+
+
+class MQAmbiguity(dspy.Signature):
+    """Deeply evaluate up to 5 exam questions for ambiguity. For each question, reason through
+    ALL possible interpretations before scoring. Check: can a knowledgeable student argue for a
+    different answer? Are there multiple valid fillings for blanks? Are any two MCQ options
+    indistinguishable? Score each: Pass / Minor / Major / Critical.
+    Return a JSON array in the same order as the input."""
+
+    questions_json: str = dspy.InputField(desc=_MQ_INPUT_DESC)
+    results_json: str = dspy.OutputField(
+        desc=(
+            'JSON array, one object per question, same order as input: '
+            '[{"q_no":"Q001",'
+            '"r3_score":"Pass","r3_issues":"None",'
+            '"r3_corrected_question":"","r3_corrected_instructions":"","r3_corrected_options":""'
+            '}, ...]'
+        )
+    )

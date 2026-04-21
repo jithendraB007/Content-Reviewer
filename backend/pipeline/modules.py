@@ -2,17 +2,10 @@ import time
 import dspy
 
 from .signatures import (
-    GrammaticalAccuracy,
-    SpellingCheck,
-    AmbiguityCheck,
-    FunctionalityAlignment,
-    InstructionClarity,
-    AcademicLanguage,
-    OptionExplanationConsistency,
-    ReadabilityCheck,
-    FormattingSpacing,
-    PunctuationCheck,
-    ENConsistency,
+    MQTextMechanics,
+    MQContentQuality,
+    MQStructure,
+    MQAmbiguity,
 )
 
 import sys
@@ -25,21 +18,14 @@ from config import INTER_CALL_DELAY
 class RubricReviewer(dspy.Module):
     def __init__(self):
         super().__init__()
-        self.r1 = dspy.Predict(GrammaticalAccuracy)
-        self.r2 = dspy.Predict(SpellingCheck)
-        self.r3 = dspy.ChainOfThought(AmbiguityCheck)
-        self.r4 = dspy.Predict(FunctionalityAlignment)
-        self.r5 = dspy.Predict(InstructionClarity)
-        self.r6 = dspy.Predict(AcademicLanguage)
-        self.r7 = dspy.Predict(OptionExplanationConsistency)
-        self.r8 = dspy.Predict(ReadabilityCheck)
-        self.r9 = dspy.Predict(FormattingSpacing)
-        self.r10 = dspy.Predict(PunctuationCheck)
-        self.r11 = dspy.Predict(ENConsistency)
+        self.mq_text = dspy.Predict(MQTextMechanics)       # R1, R2, R10, R11 for 5 questions
+        self.mq_content = dspy.Predict(MQContentQuality)   # R4, R5, R6, R8 for 5 questions
+        self.mq_structure = dspy.Predict(MQStructure)       # R7, R9 for 5 questions
+        self.mq_ambiguity = dspy.ChainOfThought(MQAmbiguity) # R3 for 5 questions (CoT)
 
     def call_with_retry(self, predictor, max_retries: int = 6, **kwargs):
         time.sleep(INTER_CALL_DELAY)
-        delay = 15.0  # initial wait after a rate-limit hit
+        delay = 15.0
         last_error = None
         for attempt in range(max_retries):
             try:
