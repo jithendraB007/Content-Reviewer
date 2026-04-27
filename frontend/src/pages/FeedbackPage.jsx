@@ -103,31 +103,64 @@ export default function FeedbackPage() {
 
       {results && <ResultsDashboard results={results} />}
 
-      {feedbackStats && feedbackStats.total > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-center justify-between">
+      {/* Optimizer Panel — always visible */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
+        <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-slate-700">Prompt Optimization</p>
+            <p className="text-sm font-semibold text-slate-700">DSPy Prompt Optimizer</p>
             <p className="text-xs text-slate-400 mt-0.5">
-              {feedbackStats.total} feedback entries collected
-              {feedbackStats.reject + feedbackStats.override > 0
-                ? ` (${feedbackStats.reject + feedbackStats.override} usable for training)`
-                : ''}
+              {feedbackStats
+                ? (() => {
+                    const usable = (feedbackStats.reject || 0) + (feedbackStats.override || 0)
+                    const needed = Math.max(0, 3 - usable)
+                    if (usable === 0) return 'Submit at least 1 Reject or Override feedback to enable optimization.'
+                    if (needed > 0) return `${usable} usable feedback${usable !== 1 ? 's' : ''} collected.`
+                    return `${usable} reject/override feedbacks ready for training.`
+                  })()
+                : 'Loading feedback stats...'}
             </p>
           </div>
-          <div className="flex items-center gap-3">
-            {optResult && (
-              <p className="text-xs text-green-600">Optimization complete</p>
-            )}
-            <button
-              onClick={handleOptimize}
-              disabled={optimizing}
-              className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-brand-700 disabled:opacity-50 transition-colors"
-            >
-              {optimizing ? 'Optimizing...' : 'Optimize Prompts'}
-            </button>
-          </div>
+          <button
+            onClick={handleOptimize}
+            disabled={optimizing || !feedbackStats || (feedbackStats.reject + feedbackStats.override) < 1}
+            className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            {optimizing ? 'Optimizing...' : 'Optimize Prompts'}
+          </button>
         </div>
-      )}
+
+        {/* Progress bar while optimizing */}
+        {optimizing && (
+          <div className="w-full bg-gray-100 rounded-full h-1.5">
+            <div className="bg-brand-600 h-1.5 rounded-full animate-pulse w-full" />
+          </div>
+        )}
+
+        {/* Results after optimization */}
+        {optResult && (
+          <div className="border-t border-gray-100 pt-3 space-y-1">
+            {optResult.results?.map((r, i) => (
+              <div key={i} className="flex items-center gap-2 text-xs">
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                  r.status === 'success' ? 'bg-green-500' :
+                  r.status === 'skipped' ? 'bg-yellow-400' : 'bg-red-400'
+                }`} />
+                <span className="text-slate-600 font-medium">{r.batch || 'All'}</span>
+                <span className="text-slate-400">
+                  {r.status === 'success'
+                    ? `Optimized with ${r.examples_used} examples`
+                    : r.reason || r.status}
+                </span>
+              </div>
+            ))}
+            {optResult.results?.some(r => r.status === 'success') && (
+              <p className="text-xs text-green-600 pt-1 font-medium">
+                Optimization saved. Re-upload your file to use improved prompts.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
 
       <div>
         <div className="flex items-center justify-between mb-4">

@@ -21,7 +21,8 @@ app = FastAPI(title="Exam Content Reviewer", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["http://localhost:5173", "http://localhost:3000",
+                   os.environ.get("FRONTEND_URL", "")],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -179,6 +180,7 @@ def submit_feedback(payload: FeedbackPayload):
         record = insert_feedback(payload.model_dump())
         return {"status": "saved", "id": record.get("id")}
     except Exception as e:
+        print(f"[FEEDBACK ERROR] {type(e).__name__}: {e}")
         raise HTTPException(500, detail=f"Failed to save feedback: {e}")
 
 

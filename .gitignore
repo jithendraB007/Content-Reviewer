@@ -1,0 +1,32 @@
+# Secrets
+.env
+*.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+env/
+.venv/
+*.egg-info/
+
+# Uploads & generated files
+backend/uploads/
+backend/feedback.db
+backend/optimized/
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.env
+
+# Excel test files
+grit_l1_input.xlsx
+grit_sample.csv
+
+# OS
+.DS_Store
+Thumbs.db

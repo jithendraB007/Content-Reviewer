@@ -1,7 +1,6 @@
 import os
 import dspy
 from dotenv import load_dotenv
-from supabase import create_client, Client
 
 load_dotenv()
 
@@ -28,29 +27,19 @@ def configure_dspy():
     global _dspy_configured
     if _dspy_configured:
         return
+    deployment = os.environ["AZURE_OPENAI_DEPLOYMENT"]
     lm = dspy.LM(
-        model="openai/meta/llama-3.1-70b-instruct",
-        api_base="https://integrate.api.nvidia.com/v1",
-        api_key=os.environ["NVIDIA_API_KEY"],
+        model=f"azure/{deployment}",
+        api_base=os.environ["AZURE_OPENAI_ENDPOINT"],
+        api_version=os.environ["AZURE_OPENAI_API_VERSION"],
+        api_key=os.environ["AZURE_OPENAI_API_KEY"],
         max_tokens=8192,
-        temperature=0.1,
+        temperature=1,
         cache=False,
     )
     dspy.configure(lm=lm)
     _dspy_configured = True
 
 
-def get_supabase_client() -> Client:
-    url = os.environ.get("SUPABASE_URL", "")
-    key = os.environ.get("SUPABASE_ANON_KEY", "")
-    if not url or not key:
-        raise RuntimeError("SUPABASE_URL and SUPABASE_ANON_KEY must be set in environment")
-    return create_client(url, key)
-
-
-supabase: Client = None
-
-
 def init_supabase():
-    global supabase
-    supabase = get_supabase_client()
+    pass  # replaced by SQLite — kept for import compatibility

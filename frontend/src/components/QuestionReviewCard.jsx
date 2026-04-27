@@ -96,6 +96,12 @@ export default function QuestionReviewCard({ result, jobId }) {
             <DiffRow label="Question" original={result.Question} corrected={result.Corrected_Question} />
             <DiffRow label="Instructions" original={result.Instructions} corrected={result.Corrected_Instructions} />
             <DiffRow label="Options" original={result.Options} corrected={result.Corrected_Options} />
+            {result['Correct Answer'] && (
+              <div className="text-xs bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+                <span className="text-blue-400 font-medium uppercase tracking-wide text-[10px]">Correct Answer — </span>
+                <span className="text-blue-800 font-semibold">{result['Correct Answer']}</span>
+              </div>
+            )}
             <DiffRow label="Explanation" original={result.Explanation} corrected={result.Corrected_Explanation} />
             {(result.Transcript || result.Corrected_Transcript) && (
               <DiffRow label="Transcript" original={result.Transcript} corrected={result.Corrected_Transcript} />
