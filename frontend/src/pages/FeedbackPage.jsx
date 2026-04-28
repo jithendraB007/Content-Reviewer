@@ -43,6 +43,10 @@ export default function FeedbackPage() {
       : results.filter((r) => r.Overall_Status === filter)
     : []
 
+  function refreshStats() {
+    getFeedbackStats().then(setFeedbackStats).catch(() => {})
+  }
+
   async function handleOptimize() {
     setOptimizing(true)
     try {
@@ -196,6 +200,7 @@ export default function FeedbackPage() {
               key={result['Q. NO'] || result.q_no || i}
               result={result}
               jobId={jobId}
+              onFeedbackSubmitted={refreshStats}
             />
           ))}
           {filtered.length === 0 && (

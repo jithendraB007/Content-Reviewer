@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { submitFeedback } from '../api'
 
-export default function FeedbackPanel({ jobId, questionNo, rubricName, aiScore, aiCorrection, originalText }) {
+export default function FeedbackPanel({ jobId, questionNo, rubricName, aiScore, aiCorrection, originalText, onFeedbackSubmitted }) {
   const [verdict, setVerdict] = useState(null)
   const [override, setOverride] = useState('')
   const [comment, setComment] = useState('')
@@ -24,6 +24,7 @@ export default function FeedbackPanel({ jobId, questionNo, rubricName, aiScore, 
         original_text: originalText || '',
       })
       setSubmitted(true)
+      if (onFeedbackSubmitted) onFeedbackSubmitted()
     } finally {
       setLoading(false)
     }

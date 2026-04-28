@@ -57,7 +57,7 @@ function DiffRow({ label, original, corrected }) {
   )
 }
 
-export default function QuestionReviewCard({ result, jobId }) {
+export default function QuestionReviewCard({ result, jobId, onFeedbackSubmitted }) {
   const [expanded, setExpanded] = useState(false)
   const qNo = result['Q. NO'] || result.q_no || '?'
   const qType = result['Question Type'] || result.question_type || ''
@@ -151,6 +151,7 @@ export default function QuestionReviewCard({ result, jobId }) {
                       aiScore={result[key]}
                       aiCorrection={result.Corrected_Question}
                       originalText={result.Question || ''}
+                      onFeedbackSubmitted={onFeedbackSubmitted}
                     />
                   </div>
                 </div>
