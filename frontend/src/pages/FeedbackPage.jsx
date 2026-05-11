@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import ResultsDashboard from '../components/ResultsDashboard'
 import QuestionReviewCard from '../components/QuestionReviewCard'
 import DownloadButton from '../components/DownloadButton'
-import { getResults, downloadResults, triggerOptimization, getFeedbackStats } from '../api'
+import { getResults, downloadResults, triggerOptimization, getFeedbackStats, getJobVerdicts, getOverallStats, getOptimizedPromptPreview } from '../api'
 
 const FILTERS = ['All', 'Approved', 'Needs Review', 'Rejected', 'Review Failed']
 
@@ -17,6 +17,10 @@ export default function FeedbackPage() {
   const [optimizing, setOptimizing] = useState(false)
   const [optResult, setOptResult] = useState(null)
   const [feedbackStats, setFeedbackStats] = useState(null)
+  const [verdicts, setVerdicts] = useState({})
+  const [overallStats, setOverallStats] = useState(null)
+  const [promptPreview, setPromptPreview] = useState(null)
+  const [showPrompt, setShowPrompt] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -35,6 +39,9 @@ export default function FeedbackPage() {
     }
     load()
     getFeedbackStats().then(setFeedbackStats).catch(() => {})
+    getJobVerdicts(jobId).then(setVerdicts).catch(() => {})
+    getOverallStats().then(setOverallStats).catch(() => {})
+    getOptimizedPromptPreview().then(setPromptPreview).catch(() => {})
   }, [jobId])
 
   const filtered = results
@@ -45,6 +52,7 @@ export default function FeedbackPage() {
 
   function refreshStats() {
     getFeedbackStats().then(setFeedbackStats).catch(() => {})
+    getOverallStats().then(setOverallStats).catch(() => {})
   }
 
   async function handleOptimize() {
@@ -52,6 +60,8 @@ export default function FeedbackPage() {
     try {
       const res = await triggerOptimization()
       setOptResult(res)
+      // Refresh prompt preview after optimization
+      getOptimizedPromptPreview().then(setPromptPreview).catch(() => {})
     } finally {
       setOptimizing(false)
     }
@@ -84,6 +94,9 @@ export default function FeedbackPage() {
     )
   }
 
+  const rv = overallStats?.review
+  const ac = overallStats?.accuracy
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
       <div className="flex items-center justify-between">
@@ -107,7 +120,146 @@ export default function FeedbackPage() {
 
       {results && <ResultsDashboard results={results} />}
 
-      {/* Optimizer Panel — always visible */}
+      {/* Cumulative stats across all uploaded files */}
+      {overallStats && rv && (
+        <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold text-slate-700">All-time Review Statistics</p>
+            <span className="text-xs text-slate-400">{rv.files} file{rv.files !== 1 ? 's' : ''} · {rv.total} questions total</span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-center">
+              <p className="text-2xl font-bold text-green-700">{rv.approved_no_changes}</p>
+              <p className="text-xs font-semibold text-green-600 mt-0.5">Correct</p>
+              <p className="text-[10px] text-green-500 mt-0.5">Approved, no changes</p>
+            </div>
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-center">
+              <p className="text-2xl font-bold text-blue-700">{rv.approved_with_changes}</p>
+              <p className="text-xs font-semibold text-blue-600 mt-0.5">Approved w/ Fixes</p>
+              <p className="text-[10px] text-blue-500 mt-0.5">Minor corrections suggested</p>
+            </div>
+            <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-center">
+              <p className="text-2xl font-bold text-yellow-700">{rv.needs_review}</p>
+              <p className="text-xs font-semibold text-yellow-600 mt-0.5">Needs Revision</p>
+              <p className="text-[10px] text-yellow-500 mt-0.5">Major issues found</p>
+            </div>
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-center">
+              <p className="text-2xl font-bold text-red-700">{rv.rejected}</p>
+              <p className="text-xs font-semibold text-red-600 mt-0.5">Rejected</p>
+              <p className="text-[10px] text-red-500 mt-0.5">Must be rewritten</p>
+            </div>
+          </div>
+
+          {rv.total > 0 && (
+            <div>
+              <div className="flex h-2.5 rounded-full overflow-hidden gap-0.5">
+                {rv.approved_no_changes > 0 && (
+                  <div className="bg-green-500" style={{ width: `${(rv.approved_no_changes / rv.total) * 100}%` }} title={`Correct: ${rv.approved_no_changes}`} />
+                )}
+                {rv.approved_with_changes > 0 && (
+                  <div className="bg-blue-400" style={{ width: `${(rv.approved_with_changes / rv.total) * 100}%` }} title={`Approved w/ Fixes: ${rv.approved_with_changes}`} />
+                )}
+                {rv.needs_review > 0 && (
+                  <div className="bg-yellow-400" style={{ width: `${(rv.needs_review / rv.total) * 100}%` }} title={`Needs Revision: ${rv.needs_review}`} />
+                )}
+                {rv.rejected > 0 && (
+                  <div className="bg-red-500" style={{ width: `${(rv.rejected / rv.total) * 100}%` }} title={`Rejected: ${rv.rejected}`} />
+                )}
+              </div>
+              <div className="flex gap-4 mt-1.5">
+                {[
+                  { label: 'Correct', val: rv.approved_no_changes, color: 'bg-green-500' },
+                  { label: 'Approved w/ Fixes', val: rv.approved_with_changes, color: 'bg-blue-400' },
+                  { label: 'Needs Revision', val: rv.needs_review, color: 'bg-yellow-400' },
+                  { label: 'Rejected', val: rv.rejected, color: 'bg-red-500' },
+                ].filter(x => x.val > 0).map(x => (
+                  <span key={x.label} className="flex items-center gap-1 text-[10px] text-slate-500">
+                    <span className={`w-2 h-2 rounded-sm ${x.color}`} />
+                    {x.label}: {Math.round((x.val / rv.total) * 100)}%
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Accuracy Report */}
+      {ac && (
+        <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-4">
+          <p className="text-sm font-semibold text-slate-700">Agent Accuracy Report</p>
+
+          <div className="grid grid-cols-2 gap-4">
+            {/* Approved by Agent */}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                Approved by Agent ({ac.approved_by_agent.total})
+              </p>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-green-500" />
+                    Correct (confirmed by human)
+                  </span>
+                  <span className="font-semibold text-slate-700">{ac.approved_by_agent.correct}</span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-red-400" />
+                    Incorrect (human found issues)
+                  </span>
+                  <span className="font-semibold text-slate-700">{ac.approved_by_agent.incorrect}</span>
+                </div>
+                <div className="flex items-center justify-between text-xs text-slate-400">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-gray-300" />
+                    Not yet verified
+                  </span>
+                  <span>{ac.approved_by_agent.unverified}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Flagged by Agent */}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                Flagged by Agent — Needs Revision + Rejected ({ac.flagged_by_agent.total})
+              </p>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-green-500" />
+                    Correctly flagged
+                  </span>
+                  <span className="font-semibold text-slate-700">{ac.flagged_by_agent.correctly_flagged}</span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-red-400" />
+                    Incorrectly flagged (false positive)
+                  </span>
+                  <span className="font-semibold text-slate-700">{ac.flagged_by_agent.incorrectly_flagged}</span>
+                </div>
+                <div className="flex items-center justify-between text-xs text-slate-400">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-gray-300" />
+                    Not yet verified
+                  </span>
+                  <span>{ac.flagged_by_agent.unverified}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <p className="text-[10px] text-slate-400 border-t border-gray-100 pt-2">
+            Based on Accept / Reject feedback submitted. Questions without feedback are shown as "Not yet verified."
+            Submit more feedback to improve accuracy tracking.
+          </p>
+        </div>
+      )}
+
+      {/* Optimizer Panel */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
         <div className="flex items-center justify-between">
           <div>
@@ -116,10 +268,8 @@ export default function FeedbackPage() {
               {feedbackStats
                 ? (() => {
                     const usable = (feedbackStats.reject || 0) + (feedbackStats.override || 0)
-                    const needed = Math.max(0, 3 - usable)
                     if (usable === 0) return 'Submit at least 1 Reject or Override feedback to enable optimization.'
-                    if (needed > 0) return `${usable} usable feedback${usable !== 1 ? 's' : ''} collected.`
-                    return `${usable} reject/override feedbacks ready for training.`
+                    return `${usable} reject/override feedback${usable !== 1 ? 's' : ''} ready for training.`
                   })()
                 : 'Loading feedback stats...'}
             </p>
@@ -133,35 +283,83 @@ export default function FeedbackPage() {
           </button>
         </div>
 
-        {/* Progress bar while optimizing */}
         {optimizing && (
           <div className="w-full bg-gray-100 rounded-full h-1.5">
             <div className="bg-brand-600 h-1.5 rounded-full animate-pulse w-full" />
           </div>
         )}
 
-        {/* Results after optimization */}
         {optResult && (
-          <div className="border-t border-gray-100 pt-3 space-y-1">
-            {optResult.results?.map((r, i) => (
-              <div key={i} className="flex items-center gap-2 text-xs">
-                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                  r.status === 'success' ? 'bg-green-500' :
-                  r.status === 'skipped' ? 'bg-yellow-400' : 'bg-red-400'
-                }`} />
-                <span className="text-slate-600 font-medium">{r.batch || 'All'}</span>
-                <span className="text-slate-400">
-                  {r.status === 'success'
-                    ? `Optimized with ${r.examples_used} examples`
-                    : r.reason || r.status}
-                </span>
+          <div className="border-t border-gray-100 pt-3 space-y-4">
+            {/* Status row */}
+            <div className="space-y-1">
+              {optResult.results?.map((r, i) => (
+                <div key={i} className="flex items-center gap-2 text-xs">
+                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                    r.status === 'success' ? 'bg-green-500' :
+                    r.status === 'skipped' ? 'bg-yellow-400' : 'bg-red-400'
+                  }`} />
+                  <span className="text-slate-600 font-medium">{r.batch || 'All'}</span>
+                  <span className="text-slate-400">
+                    {r.status === 'success' ? `Optimized with ${r.examples_used} examples` : r.reason || r.status}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* Prompt Diff */}
+            {optResult.prompt_diff?.some(b => b.added.length > 0 || b.removed.length > 0) ? (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-slate-700">Updated Prompt — review changes before re-uploading</p>
+                {optResult.prompt_diff.map((b) => {
+                  if (b.added.length === 0 && b.removed.length === 0) return null
+                  return (
+                    <div key={b.batch} className="rounded-lg border border-gray-200 overflow-hidden text-xs">
+                      <div className="flex items-center justify-between bg-gray-50 px-3 py-2 border-b border-gray-100">
+                        <p className="font-semibold text-slate-700">{b.label}</p>
+                        <span className="text-slate-400">{b.before_count} → {b.after_count} examples</span>
+                      </div>
+                      {b.added.map((ex, i) => (
+                        <div key={`a${i}`} className="px-3 py-2 bg-green-50 border-b border-green-100 last:border-0">
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <span className="text-[10px] font-bold text-green-700 bg-green-100 px-1.5 py-0.5 rounded">+ NEW</span>
+                            <span className="text-green-800 italic">"{ex.question}"</span>
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {Object.entries(ex.scores).map(([k, v]) => (
+                              <span key={k} className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                                v === 'Pass' ? 'bg-green-100 text-green-700' :
+                                v === 'Minor' ? 'bg-yellow-100 text-yellow-700' :
+                                v === 'Major' ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700'
+                              }`}>{k.replace('_score', '')}: {v}</span>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                      {b.removed.map((ex, i) => (
+                        <div key={`r${i}`} className="px-3 py-2 bg-red-50 border-b border-red-100 last:border-0 opacity-70">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] font-bold text-red-600 bg-red-100 px-1.5 py-0.5 rounded">− REMOVED</span>
+                            <span className="text-red-800 line-through italic">"{ex.question}"</span>
+                          </div>
+                        </div>
+                      ))}
+                      {b.kept.map((ex, i) => (
+                        <div key={`k${i}`} className="px-3 py-2 border-b border-gray-50 last:border-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] text-slate-400 bg-gray-100 px-1.5 py-0.5 rounded">unchanged</span>
+                            <span className="text-slate-500 italic">"{ex.question}"</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })}
+                <p className="text-xs text-green-600 font-medium">Prompt saved. Re-upload your file to apply these changes.</p>
               </div>
-            ))}
-            {optResult.results?.some(r => r.status === 'success') && (
-              <p className="text-xs text-green-600 pt-1 font-medium">
-                Optimization saved. Re-upload your file to use improved prompts.
-              </p>
-            )}
+            ) : optResult.prompt_diff ? (
+              <p className="text-xs text-slate-400">No prompt changes — same examples as before.</p>
+            ) : null}
           </div>
         )}
       </div>
@@ -172,7 +370,7 @@ export default function FeedbackPage() {
             {filtered.length} question{filtered.length !== 1 ? 's' : ''}
             {filter !== 'All' ? ` — ${filter}` : ''}
           </p>
-          <div className="flex gap-1">
+          <div className="flex gap-1 flex-wrap">
             {FILTERS.map((f) => (
               <button
                 key={f}
@@ -201,6 +399,7 @@ export default function FeedbackPage() {
               result={result}
               jobId={jobId}
               onFeedbackSubmitted={refreshStats}
+              initialVerdict={verdicts[result['Q. NO'] || result.q_no] || null}
             />
           ))}
           {filtered.length === 0 && (

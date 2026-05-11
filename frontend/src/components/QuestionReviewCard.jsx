@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import FeedbackPanel from './FeedbackPanel'
+import { submitQuestionVerdict } from '../api'
 
 const RUBRIC_COLS = [
   { key: 'R1_Grammatical_Accuracy', label: 'Grammar' },
@@ -37,7 +38,6 @@ function statusBadgeClass(status) {
 function DiffRow({ label, original, corrected }) {
   if (!original && !corrected) return null
   const changed = original !== corrected && corrected && corrected.trim()
-  if (!original && !corrected) return null
 
   return (
     <div className="grid grid-cols-2 gap-3 text-xs">
@@ -57,11 +57,38 @@ function DiffRow({ label, original, corrected }) {
   )
 }
 
-export default function QuestionReviewCard({ result, jobId, onFeedbackSubmitted }) {
+const VERDICT_CONFIG = {
+  approve: { label: 'Approve', activeClass: 'bg-green-100 border-green-400 text-green-700', icon: '✓' },
+  flag:    { label: 'Flag',    activeClass: 'bg-yellow-100 border-yellow-400 text-yellow-700', icon: '⚑' },
+  ignore:  { label: 'Ignore',  activeClass: 'bg-slate-100 border-slate-400 text-slate-600', icon: '✕' },
+}
+
+export default function QuestionReviewCard({ result, jobId, onFeedbackSubmitted, initialVerdict }) {
   const [expanded, setExpanded] = useState(false)
+  const [verdict, setVerdict] = useState(initialVerdict || null)
+  const [verdictLoading, setVerdictLoading] = useState(false)
   const qNo = result['Q. NO'] || result.q_no || '?'
   const qType = result['Question Type'] || result.question_type || ''
   const status = result.Overall_Status || 'Unknown'
+
+  async function handleVerdict(v) {
+    if (verdictLoading) return
+    const next = verdict === v ? null : v
+    setVerdictLoading(true)
+    try {
+      if (next) {
+        await submitQuestionVerdict({
+          job_id: jobId,
+          question_no: String(qNo),
+          overall_status: status,
+          verdict: next,
+        })
+      }
+      setVerdict(next)
+    } finally {
+      setVerdictLoading(false)
+    }
+  }
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -77,6 +104,11 @@ export default function QuestionReviewCard({ result, jobId, onFeedbackSubmitted 
           </span>
         </div>
         <div className="flex items-center gap-2 shrink-0 ml-3">
+          {verdict && (
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${VERDICT_CONFIG[verdict].activeClass}`}>
+              {VERDICT_CONFIG[verdict].icon} {VERDICT_CONFIG[verdict].label}
+            </span>
+          )}
           <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${statusBadgeClass(status)}`}>
             {status}
           </span>
@@ -91,6 +123,34 @@ export default function QuestionReviewCard({ result, jobId, onFeedbackSubmitted 
 
       {expanded && (
         <div className="border-t border-gray-100 px-5 py-5 space-y-5">
+
+          {/* Triage verdict buttons */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide mr-1">Triage:</span>
+            {Object.entries(VERDICT_CONFIG).map(([v, cfg]) => (
+              <button
+                key={v}
+                onClick={() => handleVerdict(v)}
+                disabled={verdictLoading}
+                className={`text-xs px-3 py-1.5 rounded-lg font-medium border transition-colors ${
+                  verdict === v
+                    ? cfg.activeClass
+                    : 'bg-white border-gray-200 text-slate-500 hover:bg-gray-50'
+                }`}
+              >
+                {cfg.icon} {cfg.label}
+              </button>
+            ))}
+            {verdict && (
+              <button
+                onClick={() => handleVerdict(verdict)}
+                className="text-xs text-slate-400 hover:text-slate-600 px-2"
+              >
+                clear
+              </button>
+            )}
+          </div>
+
           <div className="space-y-3">
             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Changes</p>
             <DiffRow label="Question" original={result.Question} corrected={result.Corrected_Question} />
@@ -132,7 +192,7 @@ export default function QuestionReviewCard({ result, jobId, onFeedbackSubmitted 
           )}
 
           <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Feedback</p>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Rubric Feedback</p>
             <div className="space-y-3">
               {RUBRIC_COLS.filter(({ key }) => {
                 const score = result[key]

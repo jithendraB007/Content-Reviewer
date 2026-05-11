@@ -8,6 +8,7 @@ import dspy
 from config import configure_dspy
 from .store import get_training_examples
 from pipeline.modules import RubricReviewer, OPTIMIZED_PATH
+from sheets.logger import get_training_feedback_from_sheets, save_optimized_weights
 
 MIN_EXAMPLES = 3
 
@@ -126,10 +127,58 @@ def _score_metric(example, pred, trace=None):
         return False
 
 
+BATCH_LABELS = {
+    "mq_text":      "Text Mechanics (Grammar, Spelling, Punctuation, EN)",
+    "mq_content":   "Content Quality (Alignment, Instructions, Academic, Readability)",
+    "mq_structure": "Structure (Options/Explanation, Formatting)",
+    "mq_ambiguity": "Ambiguity",
+}
+
+
+def _read_demos(path: str) -> dict:
+    """Read current few-shot demos from saved module JSON. Returns {batch: [demo, ...]}"""
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        out = {}
+        for batch in BATCH_LABELS:
+            predictor = data.get("predict", {}).get(batch) or data.get(batch, {})
+            demos = predictor.get("demos", [])
+            parsed = []
+            for d in demos:
+                try:
+                    q = json.loads(d.get("questions_json", "[]"))
+                    r = json.loads(d.get("results_json", "[]"))
+                    parsed.append({
+                        "question": q[0].get("question", "")[:200] if q else "",
+                        "scores": {k: v for k, v in (r[0].items() if r else {}) if k.endswith("_score")},
+                    })
+                except Exception:
+                    continue
+            out[batch] = parsed
+        return out
+    except Exception:
+        return {}
+
+
 def optimize_all_rubrics() -> list:
     configure_dspy()
 
-    all_records = get_training_examples()  # reject + override
+    # Merge feedback from Google Sheets (permanent) + local SQLite (current session)
+    sheets_records = get_training_feedback_from_sheets()
+    local_records = get_training_examples()
+
+    # Deduplicate by (question_no, rubric_name) — Sheets takes priority
+    seen = {(r["question_no"], r["rubric_name"]) for r in sheets_records}
+    for r in local_records:
+        key = (r.get("question_no"), r.get("rubric_name"))
+        if key not in seen:
+            sheets_records.append(r)
+            seen.add(key)
+    all_records = sheets_records
+
     if len(all_records) < MIN_EXAMPLES:
         return [{
             "status": "skipped",
@@ -140,6 +189,9 @@ def optimize_all_rubrics() -> list:
     examples_by_batch = _build_batch_examples(all_records)
     if not examples_by_batch:
         return [{"status": "skipped", "reason": "No usable feedback examples found."}]
+
+    # Capture BEFORE state
+    before_demos = _read_demos(OPTIMIZED_PATH)
 
     reviewer = RubricReviewer()
     results = []
@@ -178,15 +230,37 @@ def optimize_all_rubrics() -> list:
         except Exception as e:
             results.append({"status": "error", "batch": batch_name, "reason": str(e)})
 
-    # Save full optimized module so next review load picks it up
+    # Save to local file
     os.makedirs(os.path.dirname(OPTIMIZED_PATH), exist_ok=True)
     try:
         reviewer.save(OPTIMIZED_PATH)
         print(f"[INFO] Saved optimized reviewer to {OPTIMIZED_PATH}")
+        save_optimized_weights(OPTIMIZED_PATH)
     except Exception as e:
         print(f"[WARN] Could not save optimized module: {e}")
 
-    return results
+    # Capture AFTER state and build diff
+    after_demos = _read_demos(OPTIMIZED_PATH)
+    prompt_diff = []
+    for batch, label in BATCH_LABELS.items():
+        before = before_demos.get(batch, [])
+        after  = after_demos.get(batch, [])
+        before_qs = {d["question"] for d in before}
+        after_qs  = {d["question"] for d in after}
+        added   = [d for d in after  if d["question"] not in before_qs]
+        removed = [d for d in before if d["question"] not in after_qs]
+        kept    = [d for d in after  if d["question"] in before_qs]
+        prompt_diff.append({
+            "batch": batch,
+            "label": label,
+            "before_count": len(before),
+            "after_count":  len(after),
+            "added":   added,
+            "removed": removed,
+            "kept":    kept,
+        })
+
+    return {"results": results, "prompt_diff": prompt_diff}
 
 
 # Keep for backward compat

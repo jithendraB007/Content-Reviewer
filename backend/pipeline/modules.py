@@ -27,6 +27,14 @@ class RubricReviewer(dspy.Module):
         self._load_optimized()
 
     def _load_optimized(self):
+        # Try local file first
+        if not os.path.exists(OPTIMIZED_PATH):
+            # Not found locally — try downloading from Google Sheets (survives Render redeploys)
+            try:
+                from sheets.logger import load_optimized_weights
+                load_optimized_weights(OPTIMIZED_PATH)
+            except Exception as e:
+                print(f"[WARN] Could not fetch weights from Sheets: {e}")
         if os.path.exists(OPTIMIZED_PATH):
             try:
                 self.load(OPTIMIZED_PATH)

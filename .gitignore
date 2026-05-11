@@ -1,6 +1,7 @@
 # Secrets
 .env
 *.env
+backend/google_credentials.json
 
 # Python
 __pycache__/

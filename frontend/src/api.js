@@ -208,11 +208,55 @@ export async function triggerOptimization() {
   return res.data
 }
 
+export async function getOptimizedPromptPreview() {
+  if (USE_MOCK) {
+    return {
+      status: 'optimized',
+      batches: [
+        { batch: 'mq_text', label: 'Text Mechanics (Grammar, Spelling, Punctuation, EN)', example_count: 2,
+          examples: [{ question: 'She go to school every day.', scores: { r1_score: 'Major' } }] },
+        { batch: 'mq_ambiguity', label: 'Ambiguity', example_count: 1,
+          examples: [{ question: 'Fill in the blank: Water boils at ___.', scores: { r3_score: 'Critical' } }] },
+      ],
+    }
+  }
+  const res = await api.get('/api/optimize/preview')
+  return res.data
+}
+
 export async function getFeedbackStats() {
   if (USE_MOCK) {
     return { total: 12, accept: 8, reject: 3, override: 1 }
   }
   const res = await api.get('/api/feedback/stats')
+  return res.data
+}
+
+export async function submitQuestionVerdict(payload) {
+  if (USE_MOCK) {
+    await delay(200)
+    return { status: 'saved', verdict: payload.verdict }
+  }
+  const res = await api.post('/api/question-verdict', payload)
+  return res.data
+}
+
+export async function getJobVerdicts(jobId) {
+  if (USE_MOCK) {
+    return { Q001: 'approve', Q003: 'ignore' }
+  }
+  const res = await api.get(`/api/verdicts/${jobId}`)
+  return res.data
+}
+
+export async function getOverallStats() {
+  if (USE_MOCK) {
+    return {
+      review: { total: 45, approved: 28, needs_review: 12, rejected: 4, review_failed: 1, files: 3 },
+      verdicts: { approve: 22, flag: 8, ignore: 5, total: 35 },
+    }
+  }
+  const res = await api.get('/api/stats')
   return res.data
 }
 
