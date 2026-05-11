@@ -28,6 +28,16 @@ FEEDBACK_HEADERS = [
 
 _client = None
 
+# TTL cache for performance stats (invalidated on each new review job logged)
+_perf_cache: dict = {"data": None, "ts": 0}
+_CACHE_TTL = 300  # seconds
+
+
+def invalidate_perf_cache():
+    """Call after a new review job finishes to force fresh Sheets read on next dashboard load."""
+    _perf_cache["data"] = None
+    _perf_cache["ts"] = 0
+
 
 def _build_credentials():
     b64 = os.environ.get("GOOGLE_CREDENTIALS_B64")
@@ -88,6 +98,7 @@ def log_job_results(job_id: str, results: list):
         if rows:
             ws.append_rows(rows, value_input_option="RAW")
             print(f"[SHEETS] Logged {len(rows)} review rows for job {job_id[:8]}")
+            invalidate_perf_cache()
     except Exception as e:
         print(f"[SHEETS ERROR] log_job_results: {type(e).__name__}: {e}")
 
@@ -140,6 +151,136 @@ def get_training_feedback_from_sheets() -> list:
     except Exception as e:
         print(f"[SHEETS ERROR] get_training_feedback_from_sheets: {type(e).__name__}: {e}")
         return []
+
+
+RUBRIC_SHEET_COLS = [
+    "R1 Grammar", "R2 Spelling", "R3 Ambiguity", "R4 Alignment",
+    "R5 Instructions", "R6 Academic Lang", "R7 Options/Exp",
+    "R8 Readability", "R9 Formatting", "R10 Punctuation", "R11 EN Consistency",
+]
+
+
+def get_performance_stats_from_sheets() -> dict | None:
+    """
+    Read the Reviews + Feedback tabs and return stats needed by /api/performance.
+    Returns None on error (caller falls back to local files).
+    Caches results for _CACHE_TTL seconds.
+    """
+    import time
+    now = time.time()
+    if _perf_cache["data"] is not None and (now - _perf_cache["ts"]) < _CACHE_TTL:
+        return _perf_cache["data"]
+
+    try:
+        # ── Reviews tab ──────────────────────────────────────────────────────
+        ws_reviews = _get_worksheet("Reviews", REVIEW_HEADERS)
+        review_rows = ws_reviews.get_all_records()
+
+        stats = {
+            "total": 0, "files": 0,
+            "approved": 0, "approved_no_changes": 0, "approved_with_changes": 0,
+            "needs_review": 0, "rejected": 0, "review_failed": 0,
+        }
+        question_status: dict = {}
+        job_ids: set = set()
+
+        for row in review_rows:
+            status = str(row.get("Overall Status", "")).strip()
+            if not status or status in ("", "None", "Overall Status"):
+                continue
+            job_id = str(row.get("Job ID", "")).strip()
+            q_no = str(row.get("Q. NO", "")).strip()
+            job_ids.add(job_id)
+            stats["total"] += 1
+            question_status[(job_id, q_no)] = status
+
+            if status == "Approved":
+                stats["approved"] += 1
+                rubric_scores = [str(row.get(c, "")).strip() for c in RUBRIC_SHEET_COLS]
+                if any(s == "Minor" for s in rubric_scores):
+                    stats["approved_with_changes"] += 1
+                else:
+                    stats["approved_no_changes"] += 1
+            elif status == "Needs Review":
+                stats["needs_review"] += 1
+            elif status == "Rejected":
+                stats["rejected"] += 1
+            elif status == "Review Failed":
+                stats["review_failed"] += 1
+
+        stats["files"] = len(job_ids)
+
+        # ── Feedback tab ─────────────────────────────────────────────────────
+        ws_feedback = _get_worksheet("Feedback", FEEDBACK_HEADERS)
+        feedback_rows = ws_feedback.get_all_records()
+
+        question_feedback: dict = {}
+        feedback_verdict_counts: dict = {"accept": 0, "reject": 0, "override": 0}
+        for row in feedback_rows:
+            job_id = str(row.get("Job ID", "")).strip()
+            q_no = str(row.get("Q. NO", "")).strip()
+            verdict = str(row.get("User Verdict", "")).strip().lower()
+            if verdict in feedback_verdict_counts:
+                feedback_verdict_counts[verdict] += 1
+            question_feedback.setdefault((job_id, q_no), set()).add(verdict)
+
+        # ── Cross-reference ───────────────────────────────────────────────────
+        approved_correct = approved_incorrect = approved_unverif = 0
+        flagged_correct = flagged_incorrect = flagged_unverif = 0
+
+        for (job_id, q_no), status in question_status.items():
+            verdicts = question_feedback.get((job_id, q_no), set())
+            is_approved = status == "Approved"
+            is_flagged = status in ("Needs Review", "Rejected")
+
+            if not verdicts:
+                if is_approved:
+                    approved_unverif += 1
+                elif is_flagged:
+                    flagged_unverif += 1
+                continue
+
+            has_reject = "reject" in verdicts
+            if is_approved:
+                if has_reject:
+                    approved_incorrect += 1
+                else:
+                    approved_correct += 1
+            elif is_flagged:
+                if has_reject:
+                    flagged_incorrect += 1
+                else:
+                    flagged_correct += 1
+
+        result = {
+            "upload_stats": stats,
+            "accuracy": {
+                "approved_by_agent": {
+                    "total": stats["approved"],
+                    "correct": approved_correct,
+                    "incorrect": approved_incorrect,
+                    "unverified": approved_unverif,
+                },
+                "flagged_by_agent": {
+                    "total": stats["needs_review"] + stats["rejected"],
+                    "correctly_flagged": flagged_correct,
+                    "incorrectly_flagged": flagged_incorrect,
+                    "unverified": flagged_unverif,
+                },
+            },
+            "feedback_counts": {**feedback_verdict_counts, "total": sum(feedback_verdict_counts.values())},
+            "source": "sheets",
+            "cached_at": now,
+        }
+
+        _perf_cache["data"] = result
+        _perf_cache["ts"] = now
+        print(f"[SHEETS] Performance stats loaded: {stats['total']} questions, {stats['files']} jobs")
+        return result
+
+    except Exception as e:
+        print(f"[SHEETS ERROR] get_performance_stats_from_sheets: {type(e).__name__}: {e}")
+        return None
 
 
 WEIGHTS_HEADERS = ["Timestamp", "weights_b64"]

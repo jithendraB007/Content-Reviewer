@@ -260,6 +260,41 @@ export async function getOverallStats() {
   return res.data
 }
 
+export async function getPerformanceDashboard() {
+  if (USE_MOCK) {
+    return {
+      total_questions: 827,
+      total_files: 21,
+      data_source: 'Google Sheets',
+      metrics: { precision: 100.0, recall: 29.7, f1_score: 0.46, accuracy: 80.5 },
+      confusion_matrix: { tp: 65, fp: 0, fn: 154, tn: 601 },
+      question_outcomes: {
+        correct_approvals: 601, missed_issues: 154,
+        correctly_flagged: 65, false_flags: 0,
+        approved_no_changes: 601, approved_with_changes: 154,
+        needs_review: 36, rejected: 29, review_failed: 7,
+      },
+      agent_summary: {
+        approved_total: 755,
+        approved_correct: 601,
+        approved_with_fixes: 154,
+        flagged_total: 65,
+        flagged_needs_revision: 36,
+        flagged_rejected: 29,
+        flagged_false_positive: 0,
+        review_failed: 7,
+      },
+      diagnostic_insights: [
+        'Perfect precision — every flagged question has been a real issue so far.',
+        'Low recall (29.7%) — 154 questions with fixable issues were approved without flagging.',
+        '154 questions (18.6%) were approved but had minor corrections applied — the flagging threshold may be too strict for minor issues.',
+      ],
+    }
+  }
+  const res = await api.get('/api/performance')
+  return res.data
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function delay(ms) {

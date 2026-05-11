@@ -21,7 +21,7 @@ from feedback.store import (
     get_upload_stats, get_accuracy_report,
 )
 from feedback.optimizer import optimize_all_rubrics
-from sheets.logger import log_job_results, log_feedback
+from sheets.logger import log_job_results, log_feedback, get_performance_stats_from_sheets
 
 app = FastAPI(title="Exam Content Reviewer", version="1.0.0")
 
@@ -299,6 +299,129 @@ def overall_stats():
             "verdicts": verdict_stats,
             "accuracy": accuracy,
         }
+    except Exception as e:
+        raise HTTPException(500, detail=str(e))
+
+
+def _compute_performance(upload_stats: dict, accuracy: dict, source: str) -> dict:
+    """Shared logic: turn upload_stats + accuracy dicts into the full performance payload."""
+    total = upload_stats.get("total", 0)
+    total_files           = upload_stats.get("files", 0)
+    approved_no_changes   = upload_stats.get("approved_no_changes", 0)
+    approved_with_changes = upload_stats.get("approved_with_changes", 0)
+    needs_review  = upload_stats.get("needs_review", 0)
+    rejected      = upload_stats.get("rejected", 0)
+    review_failed = upload_stats.get("review_failed", 0)
+
+    acc_approved = accuracy.get("approved_by_agent", {})
+    acc_flagged  = accuracy.get("flagged_by_agent", {})
+
+    tp_verified = acc_flagged.get("correctly_flagged", 0)
+    fp_verified = acc_flagged.get("incorrectly_flagged", 0)
+    fn_verified = acc_approved.get("incorrect", 0)
+    tn_verified = acc_approved.get("correct", 0)
+
+    flagged_unverif  = acc_flagged.get("unverified", 0)
+    approved_unverif = acc_approved.get("unverified", 0)
+
+    if (tp_verified + fp_verified + fn_verified + tn_verified) == 0:
+        # No human feedback yet — use upload stats as proxy
+        tp = needs_review + rejected
+        fp = 0
+        fn = approved_with_changes
+        tn = approved_no_changes
+    else:
+        tp = tp_verified + flagged_unverif
+        fp = fp_verified
+        fn = fn_verified + approved_with_changes + approved_unverif
+        tn = tn_verified
+
+    precision    = round(tp / (tp + fp) * 100, 1) if (tp + fp) > 0 else 0.0
+    recall       = round(tp / (tp + fn) * 100, 1) if (tp + fn) > 0 else 0.0
+    f1           = round(2 * precision * recall / (precision + recall) / 100, 2) if (precision + recall) > 0 else 0.0
+    accuracy_pct = round((tp + tn) / (tp + tn + fp + fn) * 100, 1) if total > 0 else 0.0
+
+    insights = []
+    if total == 0:
+        insights.append("No review data yet — upload and review questions to see metrics here.")
+    else:
+        if fp == 0 and tp > 0:
+            insights.append("Perfect precision — every flagged question has been a real issue so far.")
+        elif precision < 70:
+            insights.append(f"Low precision ({precision}%) — many flagged questions appear to be false alarms.")
+
+        if recall < 50:
+            insights.append(
+                f"Low recall ({recall}%) — {fn} questions with fixable issues were approved without flagging."
+            )
+        elif recall >= 80:
+            insights.append(f"Strong recall ({recall}%) — most problematic questions are being caught.")
+
+        if approved_with_changes > 0:
+            pct = round(approved_with_changes / total * 100, 1)
+            insights.append(
+                f"{approved_with_changes} questions ({pct}%) were approved but had minor corrections applied — "
+                "the flagging threshold may be too strict for minor issues."
+            )
+
+        if accuracy_pct >= 90:
+            insights.append(f"High overall accuracy ({accuracy_pct}%) — the agent is broadly reliable.")
+        elif accuracy_pct < 70:
+            insights.append(f"Overall accuracy ({accuracy_pct}%) needs improvement — consider running the DSPy optimizer.")
+
+    approved_total = approved_no_changes + approved_with_changes
+    flagged_total  = needs_review + rejected
+
+    return {
+        "total_questions": total,
+        "total_files": total_files,
+        "data_source": source,
+        "metrics": {"precision": precision, "recall": recall, "f1_score": f1, "accuracy": accuracy_pct},
+        "confusion_matrix": {"tp": tp, "fp": fp, "fn": fn, "tn": tn},
+        "question_outcomes": {
+            "correct_approvals": tn,
+            "missed_issues": fn,
+            "correctly_flagged": tp,
+            "false_flags": fp,
+            "approved_no_changes": approved_no_changes,
+            "approved_with_changes": approved_with_changes,
+            "needs_review": needs_review,
+            "rejected": rejected,
+            "review_failed": review_failed,
+        },
+        "agent_summary": {
+            "approved_total": approved_total,
+            "approved_correct": approved_no_changes,
+            "approved_with_fixes": approved_with_changes,
+            "flagged_total": flagged_total,
+            "flagged_needs_revision": needs_review,
+            "flagged_rejected": rejected,
+            "flagged_false_positive": 0,
+            "review_failed": review_failed,
+        },
+        "diagnostic_insights": insights,
+    }
+
+
+@app.get("/api/performance")
+def performance_dashboard():
+    """
+    Compute precision/recall/F1/accuracy from Google Sheets (permanent store).
+    Falls back to local reviewed_*.xlsx files if Sheets is unavailable.
+    Results are cached for 5 minutes server-side.
+    """
+    try:
+        sheet_data = get_performance_stats_from_sheets()
+        if sheet_data:
+            return _compute_performance(
+                sheet_data["upload_stats"],
+                sheet_data["accuracy"],
+                source="Google Sheets",
+            )
+        # Fallback to local files
+        upload_stats = get_upload_stats(UPLOAD_DIR)
+        accuracy     = get_accuracy_report(UPLOAD_DIR)
+        return _compute_performance(upload_stats, accuracy, source="local files")
     except Exception as e:
         raise HTTPException(500, detail=str(e))
 
