@@ -313,28 +313,26 @@ def _compute_performance(upload_stats: dict, accuracy: dict, source: str) -> dic
     rejected      = upload_stats.get("rejected", 0)
     review_failed = upload_stats.get("review_failed", 0)
 
-    acc_approved = accuracy.get("approved_by_agent", {})
-    acc_flagged  = accuracy.get("flagged_by_agent", {})
+    acc_flagged = accuracy.get("flagged_by_agent", {})
 
-    tp_verified = acc_flagged.get("correctly_flagged", 0)
-    fp_verified = acc_flagged.get("incorrectly_flagged", 0)
-    fn_verified = acc_approved.get("incorrect", 0)
-    tn_verified = acc_approved.get("correct", 0)
+    # Confirmed false positives from human feedback (AI flagged but reviewer disagreed)
+    fp_confirmed = acc_flagged.get("incorrectly_flagged", 0)
 
-    flagged_unverif  = acc_flagged.get("unverified", 0)
-    approved_unverif = acc_approved.get("unverified", 0)
-
-    if (tp_verified + fp_verified + fn_verified + tn_verified) == 0:
-        # No human feedback yet — use upload stats as proxy
-        tp = needs_review + rejected
-        fp = 0
-        fn = approved_with_changes
-        tn = approved_no_changes
-    else:
-        tp = tp_verified + flagged_unverif
-        fp = fp_verified
-        fn = fn_verified + approved_with_changes + approved_unverif
-        tn = tn_verified
+    # ── Confusion matrix ─────────────────────────────────────────────────────
+    # Base proxy (always from upload stats — never inflated by unverified count):
+    #   TP = all flagged questions minus confirmed false positives
+    #   FP = human-confirmed false alarms
+    #   FN = approved questions that had Minor corrections (AI missed real issues)
+    #   TN = approved questions with no corrections at all (AI was right to approve)
+    #
+    # This stays consistent whether 0 or 10,000 feedback records exist.
+    # "Approved with minor fixes" is the honest proxy for issues the AI missed —
+    # it doesn't depend on whether a human explicitly rated them.
+    flagged_total = needs_review + rejected
+    tp = flagged_total - fp_confirmed
+    fp = fp_confirmed
+    fn = approved_with_changes
+    tn = approved_no_changes
 
     precision    = round(tp / (tp + fp) * 100, 1) if (tp + fp) > 0 else 0.0
     recall       = round(tp / (tp + fn) * 100, 1) if (tp + fn) > 0 else 0.0
@@ -396,7 +394,7 @@ def _compute_performance(upload_stats: dict, accuracy: dict, source: str) -> dic
             "flagged_total": flagged_total,
             "flagged_needs_revision": needs_review,
             "flagged_rejected": rejected,
-            "flagged_false_positive": 0,
+            "flagged_false_positive": fp_confirmed,
             "review_failed": review_failed,
         },
         "diagnostic_insights": insights,
