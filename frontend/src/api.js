@@ -171,6 +171,15 @@ export async function getResults(jobId) {
   return res.data
 }
 
+export async function getResultsFromSheets(jobId) {
+  if (USE_MOCK) {
+    await delay(400)
+    return { job_id: jobId, results: MOCK_RESULTS, source: 'sheets' }
+  }
+  const res = await api.get(`/api/sheets/results/${jobId}`)
+  return res.data
+}
+
 export async function downloadResults(jobId) {
   if (USE_MOCK) {
     alert('Mock mode: Excel download not available without backend.')

@@ -283,6 +283,55 @@ def get_performance_stats_from_sheets() -> dict | None:
         return None
 
 
+# Maps Google Sheets column name → result dict key expected by frontend/pipeline
+_SHEET_COL_MAP = {
+    "Q. NO":            "Q. NO",
+    "Question Type":    "Question Type",
+    "Question":         "Question",
+    "Correct Answer":   "Correct Answer",
+    "Difficulty":       "Difficulty",
+    "Overall Status":   "Overall_Status",
+    "R1 Grammar":       "R1_Grammatical_Accuracy",
+    "R2 Spelling":      "R2_Spelling",
+    "R3 Ambiguity":     "R3_Ambiguity",
+    "R4 Alignment":     "R4_Functionality_Alignment",
+    "R5 Instructions":  "R5_Instruction_Clarity",
+    "R6 Academic Lang": "R6_Academic_Language",
+    "R7 Options/Exp":   "R7_Option_Explanation_Consistency",
+    "R8 Readability":   "R8_Readability",
+    "R9 Formatting":    "R9_Formatting_Spacing",
+    "R10 Punctuation":  "R10_Punctuation",
+    "R11 EN Consistency": "R11_EN_Consistency",
+    "Remarks":          "Remarks",
+}
+
+
+def get_job_results_from_sheets(job_id: str) -> list | None:
+    """
+    Read all reviewed questions for a specific job_id from the Reviews tab.
+    job_id can be full UUID or the first-8-char prefix stored in Sheets.
+    Returns a list of result dicts (same shape as pipeline output) or None on error.
+    """
+    try:
+        ws = _get_worksheet("Reviews", REVIEW_HEADERS)
+        rows = ws.get_all_records()
+        prefix = job_id[:8]
+        job_rows = [r for r in rows if str(r.get("Job ID", "")).strip() == prefix]
+        if not job_rows:
+            return None
+        results = []
+        for row in job_rows:
+            mapped = {}
+            for sheet_col, result_key in _SHEET_COL_MAP.items():
+                mapped[result_key] = str(row.get(sheet_col, "")) if row.get(sheet_col) is not None else ""
+            results.append(mapped)
+        print(f"[SHEETS] Loaded {len(results)} results for job {prefix} from Sheets")
+        return results
+    except Exception as e:
+        print(f"[SHEETS ERROR] get_job_results_from_sheets: {type(e).__name__}: {e}")
+        return None
+
+
 WEIGHTS_HEADERS = ["Timestamp", "weights_b64"]
 
 

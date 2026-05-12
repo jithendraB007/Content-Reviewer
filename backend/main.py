@@ -21,7 +21,7 @@ from feedback.store import (
     get_upload_stats, get_accuracy_report,
 )
 from feedback.optimizer import optimize_all_rubrics
-from sheets.logger import log_job_results, log_feedback, get_performance_stats_from_sheets
+from sheets.logger import log_job_results, log_feedback, get_performance_stats_from_sheets, get_job_results_from_sheets
 
 app = FastAPI(title="Exam Content Reviewer", version="1.0.0")
 
@@ -422,6 +422,18 @@ def performance_dashboard():
         return _compute_performance(upload_stats, accuracy, source="local files")
     except Exception as e:
         raise HTTPException(500, detail=str(e))
+
+
+@app.get("/api/sheets/results/{job_id}")
+def get_results_from_sheets(job_id: str):
+    """
+    Fallback endpoint: fetch per-job results from Google Sheets.
+    Used when the in-memory job store has expired (e.g. after a Render restart).
+    """
+    results = get_job_results_from_sheets(job_id)
+    if results is None:
+        raise HTTPException(404, detail="Job results not found in Google Sheets.")
+    return {"job_id": job_id, "results": results, "source": "sheets"}
 
 
 @app.get("/health")
