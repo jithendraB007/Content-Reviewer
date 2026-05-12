@@ -27,7 +27,7 @@ export default function ReviewPage() {
         setStatus(s)
 
         if (s.status === 'done') {
-          setTimeout(() => navigate(`/results/${jobId}`), 1200)
+          setTimeout(() => navigate(`/dashboard/${jobId}`), 1200)
           return
         }
         if (s.status === 'failed') {
@@ -102,7 +102,7 @@ export default function ReviewPage() {
 
             {status.status === 'done' && (
               <p className="text-center text-sm text-green-600 font-medium">
-                All done! Redirecting to results...
+                All done! Opening review dashboard…
               </p>
             )}
 
