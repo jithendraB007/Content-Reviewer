@@ -244,13 +244,15 @@ def preview_optimized_prompt():
 
 @app.get("/api/template")
 def download_template():
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
-    template_path = os.path.join(UPLOAD_DIR, "template.xlsx")
-    generate_template(template_path)
-    return FileResponse(
-        template_path,
+    import io
+    from fastapi.responses import StreamingResponse
+    buf = io.BytesIO()
+    generate_template(buf)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        filename="exam_questions_template.xlsx",
+        headers={"Content-Disposition": "attachment; filename=exam_questions_template.xlsx"},
     )
 
 
@@ -434,6 +436,164 @@ def get_results_from_sheets(job_id: str):
     if results is None:
         raise HTTPException(404, detail="Job results not found in Google Sheets.")
     return {"job_id": job_id, "results": results, "source": "sheets"}
+
+
+@app.get("/api/download-from-sheets/{job_id}")
+def download_from_sheets(job_id: str):
+    """
+    Regenerate a reviewed Excel file from Google Sheets data and return it for download.
+    Used as a fallback when the original upload file has expired from the ephemeral disk.
+    """
+    results = get_job_results_from_sheets(job_id)
+    if results is None:
+        raise HTTPException(404, detail="Job results not found in Google Sheets.")
+
+    import tempfile
+    import pandas as pd
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+
+    RUBRIC_COLS = [
+        "R1_Grammatical_Accuracy", "R2_Spelling", "R3_Ambiguity",
+        "R4_Functionality_Alignment", "R5_Instruction_Clarity", "R6_Academic_Language",
+        "R7_Option_Explanation_Consistency", "R8_Readability",
+        "R9_Formatting_Spacing", "R10_Punctuation", "R11_EN_Consistency",
+    ]
+    SCORE_FILLS = {
+        "Pass":     PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid"),
+        "Minor":    PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid"),
+        "Major":    PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid"),
+        "Critical": PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid"),
+    }
+    STATUS_FILLS = {
+        "Approved":      PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid"),
+        "Needs Review":  PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid"),
+        "Rejected":      PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid"),
+        "Review Failed": PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid"),
+    }
+
+    # Column order for the regenerated sheet
+    DISPLAY_COLS = [
+        "Q. NO", "Question Type", "Question", "Correct Answer", "Difficulty",
+        "Overall_Status",
+        *RUBRIC_COLS,
+        "Remarks",
+    ]
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Review Results (from Sheets)"
+
+    headers = [c for c in DISPLAY_COLS if any(c in r for r in results)]
+    if not headers:
+        headers = DISPLAY_COLS
+
+    header_fill = PatternFill(start_color="DCE6F1", end_color="DCE6F1", fill_type="solid")
+    for col_idx, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_idx, value=h)
+        cell.font = Font(bold=True)
+        cell.fill = header_fill
+        cell.alignment = Alignment(wrap_text=True, vertical="center")
+    ws.row_dimensions[1].height = 28
+
+    for row_idx, r in enumerate(results, 2):
+        for col_idx, h in enumerate(headers, 1):
+            val = r.get(h, "")
+            cell = ws.cell(row=row_idx, column=col_idx, value=str(val) if val else "")
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+            if h in RUBRIC_COLS and val in SCORE_FILLS:
+                cell.fill = SCORE_FILLS[val]
+            elif h == "Overall_Status" and val in STATUS_FILLS:
+                cell.fill = STATUS_FILLS[val]
+
+    for col_idx, h in enumerate(headers, 1):
+        col_letter = get_column_letter(col_idx)
+        max_len = max(
+            (len(str(r.get(h, "") or "")) for r in results),
+            default=0
+        )
+        ws.column_dimensions[col_letter].width = min(max(len(h), max_len) + 2, 60)
+
+    ws.freeze_panes = "A2"
+
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    out_path = os.path.join(UPLOAD_DIR, f"sheets_export_{job_id[:8]}.xlsx")
+    wb.save(out_path)
+
+    return FileResponse(
+        out_path,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename=f"reviewed_{job_id[:8]}.xlsx",
+    )
+
+
+class ExportQuestionsPayload(BaseModel):
+    questions: list[dict]
+
+
+@app.post("/api/export-questions")
+def export_questions(payload: ExportQuestionsPayload):
+    import io
+    import re
+    from fastapi.responses import StreamingResponse
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+    from config import REQUIRED_COLUMNS
+
+    _label_re = re.compile(r"^[A-Za-z]\)\s*")
+
+    def normalize_options(val):
+        s = str(val).strip() if val else ""
+        if not s:
+            return ""
+        if " | " in s and _label_re.search(s):
+            return "\n".join(_label_re.sub("", p.strip()) for p in s.split(" | "))
+        return s
+
+    COL_WIDTHS = {
+        "Q. NO": 8, "Question Type": 22, "Transcript": 45, "Instructions": 40,
+        "Question": 55, "Options": 30, "Correct Answer": 25,
+        "Explanation": 55, "Schema": 18, "Question Purpose": 35,
+        "Difficulty": 12, "Tags": 30,
+    }
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Updated Questions"
+
+    header_fill = PatternFill(start_color="1E3A5F", end_color="1E3A5F", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    for col_idx, header in enumerate(REQUIRED_COLUMNS, 1):
+        cell = ws.cell(row=1, column=col_idx, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    ws.row_dimensions[1].height = 28
+
+    for row_num, q in enumerate(payload.questions, 2):
+        for col_idx, col in enumerate(REQUIRED_COLUMNS, 1):
+            val = q.get(col, "") or ""
+            if col == "Options":
+                val = normalize_options(val)
+            cell = ws.cell(row=row_num, column=col_idx, value=val)
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+        ws.row_dimensions[row_num].height = 50
+
+    for col_idx, header in enumerate(REQUIRED_COLUMNS, 1):
+        ws.column_dimensions[get_column_letter(col_idx)].width = COL_WIDTHS.get(header, 20)
+
+    ws.freeze_panes = "A2"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=updated_questions.xlsx"},
+    )
 
 
 @app.get("/health")

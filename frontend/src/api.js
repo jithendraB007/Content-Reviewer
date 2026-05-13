@@ -189,6 +189,15 @@ export async function downloadResults(jobId) {
   triggerDownload(res.data, `reviewed_${jobId}.xlsx`)
 }
 
+export async function downloadResultsFromSheets(jobId) {
+  if (USE_MOCK) {
+    alert('Mock mode: Excel download not available without backend.')
+    return
+  }
+  const res = await api.get(`/api/download-from-sheets/${jobId}`, { responseType: 'blob' })
+  triggerDownload(res.data, `reviewed_${jobId.slice(0, 8)}.xlsx`)
+}
+
 export async function downloadTemplate() {
   if (USE_MOCK) {
     alert('Mock mode: Template download not available without backend.')
@@ -256,6 +265,15 @@ export async function getJobVerdicts(jobId) {
   }
   const res = await api.get(`/api/verdicts/${jobId}`)
   return res.data
+}
+
+export async function exportUpdatedQuestions(questions) {
+  if (USE_MOCK) {
+    alert('Mock mode: Export not available without backend.')
+    return
+  }
+  const res = await api.post('/api/export-questions', { questions }, { responseType: 'blob' })
+  triggerDownload(res.data, 'updated_questions.xlsx')
 }
 
 export async function getOverallStats() {

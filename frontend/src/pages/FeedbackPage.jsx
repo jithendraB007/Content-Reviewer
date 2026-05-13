@@ -4,7 +4,7 @@ import ResultsDashboard from '../components/ResultsDashboard'
 import QuestionReviewCard from '../components/QuestionReviewCard'
 import DownloadButton from '../components/DownloadButton'
 import { Link } from 'react-router-dom'
-import { getResults, downloadResults, triggerOptimization, getFeedbackStats, getJobVerdicts, getOverallStats, getOptimizedPromptPreview } from '../api'
+import { getResults, downloadResults, downloadResultsFromSheets, exportUpdatedQuestions, triggerOptimization, getFeedbackStats, getJobVerdicts, getOverallStats, getOptimizedPromptPreview } from '../api'
 
 const FILTERS = ['All', 'Approved', 'Needs Review', 'Rejected', 'Review Failed']
 
@@ -22,6 +22,10 @@ export default function FeedbackPage() {
   const [overallStats, setOverallStats] = useState(null)
   const [promptPreview, setPromptPreview] = useState(null)
   const [showPrompt, setShowPrompt] = useState(false)
+  const [downloading, setDownloading] = useState(false)
+  const [downloadError, setDownloadError] = useState('')
+  const [editedQuestions, setEditedQuestions] = useState({})
+  const [exportingUpdated, setExportingUpdated] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -61,10 +65,60 @@ export default function FeedbackPage() {
     try {
       const res = await triggerOptimization()
       setOptResult(res)
-      // Refresh prompt preview after optimization
       getOptimizedPromptPreview().then(setPromptPreview).catch(() => {})
     } finally {
       setOptimizing(false)
+    }
+  }
+
+  function handleEditSave(qNo, fields) {
+    setEditedQuestions(prev => ({ ...prev, [qNo]: fields }))
+  }
+
+  async function handleExportUpdated() {
+    if (!results) return
+    setExportingUpdated(true)
+    try {
+      const questions = results.map(r => {
+        const qNo = r['Q. NO'] || r.q_no || ''
+        const e = editedQuestions[qNo] || {}
+        return {
+          'Q. NO': qNo,
+          'Question Type': r['Question Type'] || '',
+          'Transcript': 'Transcript' in e ? e.Transcript : (r.Corrected_Transcript || r.Transcript || ''),
+          'Instructions': 'Instructions' in e ? e.Instructions : (r.Corrected_Instructions || r.Instructions || ''),
+          'Question': 'Question' in e ? e.Question : (r.Corrected_Question || r.Question || ''),
+          'Options': 'Options' in e ? e.Options : (r.Corrected_Options || r.Options || ''),
+          'Correct Answer': 'Correct Answer' in e ? e['Correct Answer'] : (r['Correct Answer'] || ''),
+          'Explanation': 'Explanation' in e ? e.Explanation : (r.Corrected_Explanation || r.Explanation || ''),
+          'Schema': r.Schema || '',
+          'Question Purpose': r['Question Purpose'] || '',
+          'Difficulty': r.Difficulty || '',
+          'Tags': r.Tags || '',
+        }
+      })
+      await exportUpdatedQuestions(questions)
+    } catch {
+      // no-op: exportUpdatedQuestions handles errors internally
+    } finally {
+      setExportingUpdated(false)
+    }
+  }
+
+  async function handleDownload() {
+    setDownloading(true)
+    setDownloadError('')
+    try {
+      await downloadResults(jobId)
+    } catch (err) {
+      // Primary download failed (job likely expired from memory) — try Sheets fallback
+      try {
+        await downloadResultsFromSheets(jobId)
+      } catch (err2) {
+        setDownloadError('Download failed. The reviewed file may no longer be available on the server.')
+      }
+    } finally {
+      setDownloading(false)
     }
   }
 
@@ -121,12 +175,29 @@ export default function FeedbackPage() {
             </svg>
             Job Dashboard
           </Link>
+          <button
+            onClick={handleExportUpdated}
+            disabled={exportingUpdated || !results}
+            className="text-sm bg-emerald-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            {exportingUpdated ? 'Exporting…' : 'Updated Set Questions'}
+          </button>
           <DownloadButton
-            onClick={() => downloadResults(jobId)}
-            label="Download Excel"
+            onClick={handleDownload}
+            label={downloading ? 'Downloading…' : 'Download Excel'}
+            disabled={downloading}
           />
         </div>
       </div>
+
+      {downloadError && (
+        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+          {downloadError}
+        </div>
+      )}
 
       {/* ── Review Dashboard (current job) ─────────────────────── */}
       {results && (
@@ -417,6 +488,8 @@ export default function FeedbackPage() {
               jobId={jobId}
               onFeedbackSubmitted={refreshStats}
               initialVerdict={verdicts[result['Q. NO'] || result.q_no] || null}
+              onEdit={handleEditSave}
+              editedData={editedQuestions[result['Q. NO'] || result.q_no] || null}
             />
           ))}
           {filtered.length === 0 && (

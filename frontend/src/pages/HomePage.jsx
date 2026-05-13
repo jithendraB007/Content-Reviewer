@@ -8,6 +8,8 @@ export default function HomePage() {
   const [file, setFile] = useState(null)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
+  const [templateDownloading, setTemplateDownloading] = useState(false)
+  const [templateError, setTemplateError] = useState('')
   const navigate = useNavigate()
 
   async function handleStartReview() {
@@ -31,6 +33,18 @@ export default function HomePage() {
     }
   }
 
+  async function handleTemplateDownload() {
+    setTemplateDownloading(true)
+    setTemplateError('')
+    try {
+      await downloadTemplate()
+    } catch {
+      setTemplateError('Template download failed. Please try again.')
+    } finally {
+      setTemplateDownloading(false)
+    }
+  }
+
   const estimatedMinutes = file ? Math.ceil((file.size / 1024 / 50) * 0.5) : null
 
   return (
@@ -51,11 +65,18 @@ export default function HomePage() {
           </div>
         )}
 
+        {templateError && (
+          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">
+            {templateError}
+          </div>
+        )}
+
         <div className="flex items-center justify-between pt-2">
           <DownloadButton
-            onClick={downloadTemplate}
-            label="Download Template"
+            onClick={handleTemplateDownload}
+            label={templateDownloading ? 'Downloading…' : 'Download Template'}
             variant="secondary"
+            disabled={templateDownloading}
           />
           <button
             onClick={handleStartReview}
